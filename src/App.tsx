@@ -5,6 +5,15 @@ declare const chrome: any
 
 type View = 'library' | 'playlist'
 
+function shuffle<T>(arr: T[]): T[] {
+  const a = [...arr]
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]]
+  }
+  return a
+}
+
 function App() {
   const [url, setUrl] = useState('')
   const [title, setTitle] = useState('')
@@ -25,6 +34,8 @@ function App() {
   const [newPlaylistName, setNewPlaylistName] = useState('')
   const [showNewPlaylist, setShowNewPlaylist] = useState(false)
   const [addingToPlaylist, setAddingToPlaylist] = useState<Bookmark | null>(null)
+  const [isShuffled, setIsShuffled] = useState(false)
+  const [shuffledIds, setShuffledIds] = useState<number[]>([])
 
   useEffect(() => {
     getSettings().then(s => setAutoTagLevel(s.autoTagLevel))
@@ -177,6 +188,48 @@ function App() {
     await loadQueue()
   }
 
+  const shuffleQueue = async () => {
+    const shuffled = shuffle(queue)
+    await db.queue.clear()
+    for (const item of shuffled) {
+      const { id, ...rest } = item
+      await db.queue.add({ ...rest, addedAt: Date.now() + Math.random() })
+    }
+    await loadQueue()
+    setSaveMsg('🔀 Queue shuffled!')
+    setTimeout(() => setSaveMsg(''), 1500)
+  }
+
+  const toggleShuffleLibrary = () => {
+    if (isShuffled) {
+      setIsShuffled(false)
+      setShuffledIds([])
+    } else {
+      const ids = shuffle(saved.map(s => s.id!))
+      setShuffledIds(ids)
+      setIsShuffled(true)
+      setSaveMsg('🔀 Library shuffled!')
+      setTimeout(() => setSaveMsg(''), 1500)
+    }
+  }
+
+  const shuffleIntoQueue = async (items: Bookmark[]) => {
+    const shuffled = shuffle(items)
+    for (const item of shuffled) {
+      await db.queue.add({
+        bookmarkId: item.id!,
+        title: item.title,
+        url: item.url,
+        thumbnail: item.thumbnail,
+        addedAt: Date.now() + Math.random() * 1000
+      })
+    }
+    await loadQueue()
+    setShowQueue(true)
+    setSaveMsg(`🔀 ${shuffled.length} videos queued!`)
+    setTimeout(() => setSaveMsg(''), 2000)
+  }
+
   const createPlaylist = async () => {
     if (!newPlaylistName.trim()) return
     await db.playlists.add({
@@ -232,7 +285,12 @@ function App() {
     ? (activePlaylist.itemIds || []).map(id => saved.find(s => s.id === id)).filter(Boolean) as Bookmark[]
     : []
 
-  const filtered = (view === 'playlist' ? playlistItems : saved).filter(item => {
+  const baseItems = view === 'playlist' ? playlistItems : saved
+  const orderedItems = isShuffled && view === 'library'
+    ? shuffledIds.map(id => saved.find(s => s.id === id)).filter(Boolean) as Bookmark[]
+    : baseItems
+
+  const filtered = orderedItems.filter(item => {
     const matchSearch = search === '' || item.title.toLowerCase().includes(search.toLowerCase())
     const matchTag = filterTag === '' || (item.tags || []).includes(filterTag)
     return matchSearch && matchTag
@@ -277,7 +335,7 @@ function App() {
               </span>
             ))}
           </div>
-          <div style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'wrap' }}>
             {['⚡','🔁','✅','❤️'].map(badge => (
               <span
                 key={badge}
@@ -291,20 +349,20 @@ function App() {
               onClick={() => addToQueue(item)}
               style={{ fontSize: 10, color: '#5b9bd5', cursor: 'pointer', padding: '1px 5px', border: '1px solid #5b9bd5', borderRadius: 4 }}
             >
-              + Q
+              +Q
             </span>
             <span
               onClick={() => setAddingToPlaylist(addingToPlaylist?.id === item.id ? null : item)}
               style={{ fontSize: 10, color: '#aaa', cursor: 'pointer', padding: '1px 5px', border: '1px solid #333', borderRadius: 4 }}
             >
-              + PL
+              +PL
             </span>
             {view === 'playlist' && activePlaylist && (
               <span
                 onClick={() => removeFromPlaylist(activePlaylist, item.id!)}
                 style={{ fontSize: 10, color: '#c0392b', cursor: 'pointer', padding: '1px 5px', border: '1px solid #c0392b', borderRadius: 4 }}
               >
-                Remove
+                −PL
               </span>
             )}
             <button
@@ -313,12 +371,11 @@ function App() {
             >×</button>
           </div>
 
-          {/* Playlist picker */}
           {addingToPlaylist?.id === item.id && (
             <div style={{ marginTop: 4, background: '#0f1923', borderRadius: 4, padding: 6 }}>
               <div style={{ fontSize: 10, color: '#666', marginBottom: 4 }}>Add to playlist:</div>
               {playlists.length === 0 && (
-                <div style={{ fontSize: 10, color: '#444' }}>No playlists yet. Create one below.</div>
+                <div style={{ fontSize: 10, color: '#444' }}>No playlists yet.</div>
               )}
               {playlists.map(pl => (
                 <div
@@ -326,8 +383,7 @@ function App() {
                   onClick={() => addToPlaylist(pl, item)}
                   style={{ padding: '3px 6px', fontSize: 11, color: '#aaa', cursor: 'pointer', borderRadius: 3, marginBottom: 2 }}
                 >
-                  📋 {pl.name}
-                  {(pl.itemIds || []).includes(item.id!) && ' ✓'}
+                  📋 {pl.name} {(pl.itemIds || []).includes(item.id!) && '✓'}
                 </div>
               ))}
             </div>
@@ -377,16 +433,24 @@ function App() {
             Library
           </button>
           <button
+            onClick={toggleShuffleLibrary}
+            style={{ padding: '4px 8px', background: isShuffled ? '#5b9bd5' : '#1a2533', color: '#fff', border: '1px solid #333', borderRadius: 4, cursor: 'pointer', fontSize: 10 }}
+            title="Shuffle library"
+          >
+            🔀
+          </button>
+          <button
             onClick={() => setShowQueue(!showQueue)}
             style={{ padding: '4px 8px', background: showQueue ? '#5b9bd5' : '#1a2533', color: '#fff', border: '1px solid #333', borderRadius: 4, cursor: 'pointer', fontSize: 10, whiteSpace: 'nowrap' }}
           >
-            🎬 {queue.length > 0 ? `(${queue.length})` : 'Queue'}
+            🎬 {queue.length > 0 ? `(${queue.length})` : 'Q'}
           </button>
           <button
             onClick={handleRetagAll}
             style={{ padding: '4px 8px', background: '#1a2533', color: '#aaa', border: '1px solid #333', borderRadius: 4, cursor: 'pointer', fontSize: 10 }}
+            title="Re-tag all"
           >
-            Re-tag
+            ✦
           </button>
         </div>
         {saveMsg && <div style={{ color: '#4caf50', fontSize: 11, marginTop: 4 }}>{saveMsg}</div>}
@@ -397,13 +461,26 @@ function App() {
         <div style={{ background: '#111e2b', borderBottom: '1px solid #1a2533', padding: '8px 12px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
             <span style={{ fontSize: 11, fontWeight: 'bold', color: '#5b9bd5' }}>🎬 Queue ({queue.length})</span>
-            <div style={{ display: 'flex', gap: 6 }}>
+            <div style={{ display: 'flex', gap: 5 }}>
               <button
                 onClick={playNext}
                 disabled={queue.length === 0}
-                style={{ padding: '3px 10px', background: queue.length > 0 ? '#1F3A5F' : '#1a2533', color: queue.length > 0 ? '#fff' : '#444', border: 'none', borderRadius: 4, cursor: queue.length > 0 ? 'pointer' : 'default', fontSize: 11 }}
+                style={{ padding: '3px 8px', background: queue.length > 0 ? '#1F3A5F' : '#1a2533', color: queue.length > 0 ? '#fff' : '#444', border: 'none', borderRadius: 4, cursor: queue.length > 0 ? 'pointer' : 'default', fontSize: 11 }}
               >
-                ▶ Play Next
+                ▶ Next
+              </button>
+              <button
+                onClick={shuffleQueue}
+                disabled={queue.length === 0}
+                style={{ padding: '3px 8px', background: '#1a2533', color: queue.length > 0 ? '#aaa' : '#333', border: '1px solid #333', borderRadius: 4, cursor: 'pointer', fontSize: 11 }}
+              >
+                🔀
+              </button>
+              <button
+                onClick={() => shuffleIntoQueue(view === 'playlist' ? playlistItems : filtered)}
+                style={{ padding: '3px 8px', background: '#1a2533', color: '#aaa', border: '1px solid #333', borderRadius: 4, cursor: 'pointer', fontSize: 10, whiteSpace: 'nowrap' }}
+              >
+                + All 🔀
               </button>
               <button
                 onClick={clearQueue}
@@ -435,9 +512,15 @@ function App() {
         {/* Left: items */}
         <div style={{ flex: 1, overflowY: 'auto', padding: '6px 8px', display: 'flex', flexDirection: 'column', gap: 5 }}>
           {view === 'playlist' && activePlaylist && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', borderBottom: '1px solid #1a2533', marginBottom: 4 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0 6px', borderBottom: '1px solid #1a2533' }}>
               <span style={{ fontSize: 12, fontWeight: 'bold', color: '#5b9bd5' }}>📋 {activePlaylist.name}</span>
               <span style={{ fontSize: 10, color: '#444' }}>{playlistItems.length} videos</span>
+              <button
+                onClick={() => shuffleIntoQueue(playlistItems)}
+                style={{ marginLeft: 'auto', padding: '2px 8px', background: '#1a2533', color: '#aaa', border: '1px solid #333', borderRadius: 4, cursor: 'pointer', fontSize: 10 }}
+              >
+                🔀 Queue All
+              </button>
             </div>
           )}
           {filtered.length === 0 && (
@@ -448,17 +531,13 @@ function App() {
           {filtered.map(item => renderItem(item))}
         </div>
 
-        {/* Right: tags + playlists */}
+        {/* Right: playlists + tags */}
         <div style={{ width: 100, borderLeft: '1px solid #1a2533', padding: '8px 6px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
 
-          {/* Playlists */}
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
               <div style={{ fontSize: 9, color: '#444', fontWeight: 'bold', letterSpacing: 1 }}>PLAYLISTS</div>
-              <span
-                onClick={() => setShowNewPlaylist(!showNewPlaylist)}
-                style={{ fontSize: 14, color: '#5b9bd5', cursor: 'pointer', lineHeight: 1 }}
-              >+</span>
+              <span onClick={() => setShowNewPlaylist(!showNewPlaylist)} style={{ fontSize: 14, color: '#5b9bd5', cursor: 'pointer', lineHeight: 1 }}>+</span>
             </div>
             {showNewPlaylist && (
               <div style={{ marginBottom: 6 }}>
@@ -474,26 +553,19 @@ function App() {
             )}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
               {playlists.map(pl => (
-                <div
-                  key={pl.id}
-                  style={{ display: 'flex', alignItems: 'center', gap: 3 }}
-                >
+                <div key={pl.id} style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
                   <span
                     onClick={() => { setActivePlaylist(pl); setView('playlist'); setFilterTag('') }}
                     style={{ flex: 1, padding: '2px 5px', borderRadius: 3, background: activePlaylist?.id === pl.id ? '#5b9bd5' : '#1a2533', color: activePlaylist?.id === pl.id ? '#fff' : '#aaa', fontSize: 10, cursor: 'pointer', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
                   >
                     {pl.name}
                   </span>
-                  <span
-                    onClick={() => deletePlaylist(pl.id!)}
-                    style={{ color: '#333', cursor: 'pointer', fontSize: 11 }}
-                  >×</span>
+                  <span onClick={() => deletePlaylist(pl.id!)} style={{ color: '#333', cursor: 'pointer', fontSize: 11 }}>×</span>
                 </div>
               ))}
             </div>
           </div>
 
-          {/* Tags */}
           <div>
             <div style={{ fontSize: 9, color: '#444', marginBottom: 5, fontWeight: 'bold', letterSpacing: 1 }}>TAGS</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
