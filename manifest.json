@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "Stashd",
+  "version": "0.1.0",
+  "description": "Your private media library",
+  "permissions": ["storage", "tabs", "scripting", "alarms", "contextMenus"],
+  "host_permissions": ["<all_urls>"],
+  "background": { "service_worker": "background.js" },
+  "action": { "default_popup": "index.html" },
+  "content_scripts": [{
+    "matches": ["<all_urls>"],
+    "js": ["content.js"]
+  }]
+}
