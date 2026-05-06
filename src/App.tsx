@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { db, type Bookmark, type QueueItem, type Playlist, getSettings, extractTags } from './lib/db'
 import { Lock } from './Lock'
+import { Decoy } from './Decoy'
 
 declare const chrome: any
 
@@ -28,6 +29,7 @@ function App() {
   const [unlocked, setUnlocked] = useState(false)
   const [pinHash, setPinHash] = useState<string | null>(null)
   const [pinLoaded, setPinLoaded] = useState(false)
+  const [showDecoy, setShowDecoy] = useState(false)
   const [url, setUrl] = useState('')
   const [title, setTitle] = useState('')
   const [duration, setDuration] = useState('')
@@ -55,7 +57,6 @@ function App() {
       setAutoTagLevel(s.autoTagLevel)
       setPinHash(s.pinHash)
       setPinLoaded(true)
-      // Always show lock screen on open - user must set or enter PIN
       setUnlocked(false)
     })
     loadSaved()
@@ -92,6 +93,15 @@ function App() {
         }, 1500)
       }
     })
+
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.key === 'd') {
+        e.preventDefault()
+        setShowDecoy(prev => !prev)
+      }
+    }
+    window.addEventListener('keydown', handleKey)
+    return () => window.removeEventListener('keydown', handleKey)
   }, [])
 
   const loadSaved = async () => {
@@ -434,6 +444,7 @@ function App() {
   )
 
   if (!pinLoaded) return null
+  if (showDecoy) return <Decoy onExit={() => setShowDecoy(false)} />
 
   if (!unlocked) {
     return (

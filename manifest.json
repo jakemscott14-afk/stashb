@@ -3,7 +3,7 @@
   "name": "Stashd",
   "version": "0.1.0",
   "description": "Your private media library",
-  "permissions": ["storage", "tabs", "scripting", "alarms", "contextMenus"],
+  "permissions": ["storage", "tabs", "scripting", "alarms", "contextMenus", "notifications"],
   "host_permissions": ["<all_urls>"],
   "background": { "service_worker": "background.js" },
   "action": { "default_popup": "index.html" },
