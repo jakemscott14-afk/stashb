@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { db, type Bookmark, type QueueItem, type Playlist, getSettings, extractTags } from './lib/db'
 import { Lock } from './Lock'
 import { Decoy } from './Decoy'
@@ -55,6 +55,8 @@ function App() {
   const [shuffledIds, setShuffledIds] = useState<number[]>([])
   const [checking, setChecking] = useState(false)
   const [filterDead, setFilterDead] = useState(false)
+  const [editingNoteId, setEditingNoteId] = useState<number | null>(null)
+  const noteTimerRef = useRef<any>(null)
 
   useEffect(() => {
     getSettings().then(s => {
@@ -223,6 +225,18 @@ function App() {
       : [...(item.badges || []), badge]
     await db.bookmarks.update(item.id!, { badges })
     await loadSaved()
+  }
+
+  const handleNoteChange = (id: number, note: string) => {
+    // Update local state immediately for responsive UI
+    setSaved(prev => prev.map(item =>
+      item.id === id ? { ...item, notes: note } : item
+    ))
+    // Debounce the DB write by 500ms
+    if (noteTimerRef.current) clearTimeout(noteTimerRef.current)
+    noteTimerRef.current = setTimeout(async () => {
+      await db.bookmarks.update(id, { notes: note })
+    }, 500)
   }
 
   const addToQueue = async (item: Bookmark) => {
@@ -423,6 +437,33 @@ function App() {
               </span>
             ))}
           </div>
+
+          {/* Note preview */}
+          {item.notes && editingNoteId !== item.id && (
+            <div
+              onClick={() => setEditingNoteId(item.id!)}
+              style={{ fontSize: 10, color: '#666', fontStyle: 'italic', marginBottom: 3, cursor: 'pointer', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+            >
+              📝 {item.notes}
+            </div>
+          )}
+
+          {/* Note editor */}
+          {editingNoteId === item.id && (
+            <textarea
+              autoFocus
+              value={item.notes || ''}
+              onChange={e => handleNoteChange(item.id!, e.target.value)}
+              onBlur={() => setEditingNoteId(null)}
+              placeholder="Add a note..."
+              style={{
+                width: '100%', height: 48, background: '#0f1923', border: '1px solid #333',
+                borderRadius: 4, color: '#aaa', fontSize: 10, padding: 4, resize: 'none',
+                fontFamily: 'Arial', boxSizing: 'border-box', marginBottom: 3
+              }}
+            />
+          )}
+
           <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'wrap' }}>
             {['⚡','🔁','✅','❤️'].map(badge => (
               <span
@@ -444,6 +485,12 @@ function App() {
               style={{ fontSize: 10, color: '#aaa', cursor: 'pointer', padding: '1px 5px', border: '1px solid #333', borderRadius: 4 }}
             >
               +PL
+            </span>
+            <span
+              onClick={() => setEditingNoteId(editingNoteId === item.id ? null : item.id!)}
+              style={{ fontSize: 10, color: item.notes ? '#e67e22' : '#444', cursor: 'pointer', padding: '1px 5px', border: `1px solid ${item.notes ? '#e67e22' : '#333'}`, borderRadius: 4 }}
+            >
+              📝
             </span>
             {view === 'playlist' && activePlaylist && (
               <span
@@ -615,37 +662,25 @@ function App() {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
             <span style={{ fontSize: 11, fontWeight: 'bold', color: '#5b9bd5' }}>🎬 Queue ({queue.length})</span>
             <div style={{ display: 'flex', gap: 5 }}>
-              <button
-                onClick={playNext}
-                disabled={queue.length === 0}
-                style={{ padding: '3px 8px', background: queue.length > 0 ? '#1F3A5F' : '#1a2533', color: queue.length > 0 ? '#fff' : '#444', border: 'none', borderRadius: 4, cursor: queue.length > 0 ? 'pointer' : 'default', fontSize: 11 }}
-              >
+              <button onClick={playNext} disabled={queue.length === 0}
+                style={{ padding: '3px 8px', background: queue.length > 0 ? '#1F3A5F' : '#1a2533', color: queue.length > 0 ? '#fff' : '#444', border: 'none', borderRadius: 4, cursor: queue.length > 0 ? 'pointer' : 'default', fontSize: 11 }}>
                 ▶ Next
               </button>
-              <button
-                onClick={shuffleQueue}
-                disabled={queue.length === 0}
-                style={{ padding: '3px 8px', background: '#1a2533', color: queue.length > 0 ? '#aaa' : '#333', border: '1px solid #333', borderRadius: 4, cursor: 'pointer', fontSize: 11 }}
-              >
+              <button onClick={shuffleQueue} disabled={queue.length === 0}
+                style={{ padding: '3px 8px', background: '#1a2533', color: queue.length > 0 ? '#aaa' : '#333', border: '1px solid #333', borderRadius: 4, cursor: 'pointer', fontSize: 11 }}>
                 🔀
               </button>
-              <button
-                onClick={() => shuffleIntoQueue(view === 'playlist' ? playlistItems : filtered)}
-                style={{ padding: '3px 8px', background: '#1a2533', color: '#aaa', border: '1px solid #333', borderRadius: 4, cursor: 'pointer', fontSize: 10, whiteSpace: 'nowrap' }}
-              >
+              <button onClick={() => shuffleIntoQueue(view === 'playlist' ? playlistItems : filtered)}
+                style={{ padding: '3px 8px', background: '#1a2533', color: '#aaa', border: '1px solid #333', borderRadius: 4, cursor: 'pointer', fontSize: 10, whiteSpace: 'nowrap' }}>
                 + All 🔀
               </button>
-              <button
-                onClick={clearQueue}
-                style={{ padding: '3px 8px', background: 'none', color: '#555', border: '1px solid #333', borderRadius: 4, cursor: 'pointer', fontSize: 11 }}
-              >
+              <button onClick={clearQueue}
+                style={{ padding: '3px 8px', background: 'none', color: '#555', border: '1px solid #333', borderRadius: 4, cursor: 'pointer', fontSize: 11 }}>
                 Clear
               </button>
             </div>
           </div>
-          {queue.length === 0 && (
-            <p style={{ color: '#444', fontSize: 11, margin: 0 }}>Queue is empty.</p>
-          )}
+          {queue.length === 0 && <p style={{ color: '#444', fontSize: 11, margin: 0 }}>Queue is empty.</p>}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 120, overflowY: 'auto' }}>
             {queue.map((item, index) => (
               <div key={item.id} style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#1a2533', borderRadius: 4, padding: '4px 8px' }}>
@@ -666,10 +701,8 @@ function App() {
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0 6px', borderBottom: '1px solid #1a2533' }}>
               <span style={{ fontSize: 12, fontWeight: 'bold', color: '#5b9bd5' }}>📋 {activePlaylist.name}</span>
               <span style={{ fontSize: 10, color: '#444' }}>{playlistItems.length} videos</span>
-              <button
-                onClick={() => shuffleIntoQueue(playlistItems)}
-                style={{ marginLeft: 'auto', padding: '2px 8px', background: '#1a2533', color: '#aaa', border: '1px solid #333', borderRadius: 4, cursor: 'pointer', fontSize: 10 }}
-              >
+              <button onClick={() => shuffleIntoQueue(playlistItems)}
+                style={{ marginLeft: 'auto', padding: '2px 8px', background: '#1a2533', color: '#aaa', border: '1px solid #333', borderRadius: 4, cursor: 'pointer', fontSize: 10 }}>
                 🔀 Queue All
               </button>
             </div>
@@ -690,23 +723,16 @@ function App() {
             </div>
             {showNewPlaylist && (
               <div style={{ marginBottom: 6 }}>
-                <input
-                  autoFocus
-                  value={newPlaylistName}
-                  onChange={e => setNewPlaylistName(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && createPlaylist()}
-                  placeholder="Name..."
-                  style={{ width: '100%', padding: '3px 5px', background: '#1a2533', border: '1px solid #5b9bd5', borderRadius: 3, color: '#fff', fontSize: 10, boxSizing: 'border-box' }}
-                />
+                <input autoFocus value={newPlaylistName} onChange={e => setNewPlaylistName(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && createPlaylist()} placeholder="Name..."
+                  style={{ width: '100%', padding: '3px 5px', background: '#1a2533', border: '1px solid #5b9bd5', borderRadius: 3, color: '#fff', fontSize: 10, boxSizing: 'border-box' }} />
               </div>
             )}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
               {playlists.map(pl => (
                 <div key={pl.id} style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-                  <span
-                    onClick={() => { setActivePlaylist(pl); setView('playlist'); setFilterTag('') }}
-                    style={{ flex: 1, padding: '2px 5px', borderRadius: 3, background: activePlaylist?.id === pl.id ? '#5b9bd5' : '#1a2533', color: activePlaylist?.id === pl.id ? '#fff' : '#aaa', fontSize: 10, cursor: 'pointer', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
-                  >
+                  <span onClick={() => { setActivePlaylist(pl); setView('playlist'); setFilterTag('') }}
+                    style={{ flex: 1, padding: '2px 5px', borderRadius: 3, background: activePlaylist?.id === pl.id ? '#5b9bd5' : '#1a2533', color: activePlaylist?.id === pl.id ? '#fff' : '#aaa', fontSize: 10, cursor: 'pointer', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     {pl.name}
                   </span>
                   <span onClick={() => deletePlaylist(pl.id!)} style={{ color: '#333', cursor: 'pointer', fontSize: 11 }}>×</span>
@@ -718,18 +744,13 @@ function App() {
           <div>
             <div style={{ fontSize: 9, color: '#444', marginBottom: 5, fontWeight: 'bold', letterSpacing: 1 }}>TAGS</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-              <span
-                onClick={() => setFilterTag('')}
-                style={{ padding: '2px 6px', borderRadius: 3, background: filterTag === '' ? '#5b9bd5' : '#1a2533', color: '#fff', fontSize: 10, cursor: 'pointer', textAlign: 'center' }}
-              >
+              <span onClick={() => setFilterTag('')}
+                style={{ padding: '2px 6px', borderRadius: 3, background: filterTag === '' ? '#5b9bd5' : '#1a2533', color: '#fff', fontSize: 10, cursor: 'pointer', textAlign: 'center' }}>
                 All
               </span>
               {allTags.map(tag => (
-                <span
-                  key={tag}
-                  onClick={() => setFilterTag(filterTag === tag ? '' : tag)}
-                  style={{ padding: '2px 6px', borderRadius: 3, background: filterTag === tag ? '#5b9bd5' : '#1a2533', color: filterTag === tag ? '#fff' : '#aaa', fontSize: 10, cursor: 'pointer', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
-                >
+                <span key={tag} onClick={() => setFilterTag(filterTag === tag ? '' : tag)}
+                  style={{ padding: '2px 6px', borderRadius: 3, background: filterTag === tag ? '#5b9bd5' : '#1a2533', color: filterTag === tag ? '#fff' : '#aaa', fontSize: 10, cursor: 'pointer', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   {tag}
                 </span>
               ))}
