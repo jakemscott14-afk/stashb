@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { db, type Bookmark, type QueueItem, type Playlist, getSettings, extractTags } from './lib/db'
 import { Lock } from './Lock'
 import { Decoy } from './Decoy'
+import { Settings } from './Settings'
 
 declare const chrome: any
 
@@ -30,6 +31,7 @@ function App() {
   const [pinHash, setPinHash] = useState<string | null>(null)
   const [pinLoaded, setPinLoaded] = useState(false)
   const [showDecoy, setShowDecoy] = useState(false)
+  const [showSettings, setShowSettings] = useState(false)
   const [url, setUrl] = useState('')
   const [title, setTitle] = useState('')
   const [duration, setDuration] = useState('')
@@ -104,7 +106,6 @@ function App() {
     }
     window.addEventListener('keydown', handleKey)
 
-    // Listen for health check completion
     const handleMessage = (msg: any) => {
       if (msg.type === 'CHECK_COMPLETE') {
         setChecking(false)
@@ -346,8 +347,12 @@ function App() {
     }
   }
 
-  const deadCount = saved.filter(s => s.lastChecked && !s.isAlive).length
+  const findReplacement = (item: Bookmark) => {
+    const query = encodeURIComponent(item.title.replace(/[-–—]/g, ' ').trim())
+    chrome.tabs.create({ url: `https://www.google.com/search?q=${query}` })
+  }
 
+  const deadCount = saved.filter(s => s.lastChecked && !s.isAlive).length
   const allTags = [...new Set(saved.flatMap(s => s.tags || []))]
 
   const playlistItems = activePlaylist
@@ -365,10 +370,7 @@ function App() {
     const matchDead = !filterDead || (item.lastChecked && !item.isAlive)
     return matchSearch && matchTag && matchDead
   })
-const findReplacement = (item: Bookmark) => {
-    const query = encodeURIComponent(item.title.replace(/[-–—]/g, ' ').trim())
-    chrome.tabs.create({ url: `https://www.google.com/search?q=${query}` })
-  }
+
   const renderItem = (item: Bookmark) => (
     <div key={item.id} style={{ background: '#1a2533', borderRadius: 5, overflow: 'hidden', border: item.lastChecked && !item.isAlive ? '1px solid #c0392b' : '1px solid transparent' }}>
       <div style={{ display: 'flex', gap: 7, padding: 7 }}>
@@ -508,6 +510,18 @@ const findReplacement = (item: Bookmark) => {
     )
   }
 
+  if (showSettings) {
+    return (
+      <Settings
+        onClose={() => { setShowSettings(false); loadSaved() }}
+        pinHash={pinHash}
+        onPinChange={setPinHash}
+        autoTagLevel={autoTagLevel}
+        onAutoTagChange={setAutoTagLevel}
+      />
+    )
+  }
+
   return (
     <div style={{ width: 580, fontFamily: 'Arial', background: '#0f1923', color: '#fff', minHeight: 400, display: 'flex', flexDirection: 'column' }}>
 
@@ -566,7 +580,6 @@ const findReplacement = (item: Bookmark) => {
             <button
               onClick={() => setFilterDead(!filterDead)}
               style={{ padding: '4px 8px', background: filterDead ? '#c0392b' : '#1a2533', color: '#fff', border: '1px solid #c0392b', borderRadius: 4, cursor: 'pointer', fontSize: 10 }}
-              title="Show dead links only"
             >
               Dead
             </button>
@@ -577,6 +590,13 @@ const findReplacement = (item: Bookmark) => {
             title="Re-tag all"
           >
             ✦
+          </button>
+          <button
+            onClick={() => setShowSettings(true)}
+            style={{ padding: '4px 8px', background: '#1a2533', color: '#aaa', border: '1px solid #333', borderRadius: 4, cursor: 'pointer', fontSize: 10 }}
+            title="Settings"
+          >
+            ⚙️
           </button>
           <button
             onClick={() => setUnlocked(false)}
