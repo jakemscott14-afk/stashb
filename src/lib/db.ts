@@ -31,6 +31,15 @@ export interface Playlist {
   shuffle: boolean
 }
 
+export interface QueueItem {
+  id?: number
+  bookmarkId: number
+  title: string
+  url: string
+  thumbnail: string
+  addedAt: number
+}
+
 export interface Settings {
   id?: number
   passwordHash: string | null
@@ -53,13 +62,15 @@ export interface Settings {
 class StashdDB extends Dexie {
   bookmarks!: Table<Bookmark>
   playlists!: Table<Playlist>
+  queue!: Table<QueueItem>
   settings!: Table<Settings>
 
   constructor() {
     super('stashd')
-    this.version(3).stores({
+    this.version(4).stores({
       bookmarks: '++id, url, title, domain, savedAt, lastWatched, isAlive',
       playlists: '++id, name, createdAt',
+      queue: '++id, bookmarkId, addedAt',
       settings: '++id'
     })
   }
@@ -67,7 +78,6 @@ class StashdDB extends Dexie {
 
 export const db = new StashdDB()
 
-// Default settings
 export async function getSettings(): Promise<Settings> {
   const s = await db.settings.get(1)
   if (s) return s
@@ -93,20 +103,52 @@ export async function getSettings(): Promise<Settings> {
   return defaults
 }
 
-// Auto tag extractor
 export function extractTags(title: string, level: number): string[] {
   if (level === 0) return []
+
   const stopWords = new Set([
     'the','and','with','for','a','an','in','on','at','to','of',
     'video','watch','free','hd','full','online','porn','sex',
-    'xxx','tube','hot','new','best','big','black','white','all',
-    'is','are','was','be','by','from','as','or','but','not','this'
+    'xxx','tube','hot','new','best','big','all','is','are',
+    'was','be','by','from','as','or','but','not','this',
+    'her','his','sd','4k','mp4','now','part','get','your',
+    'again','lends','hand','you','better','fucks','fucked',
+    'slut','slutty','gets','make','makes','take','takes',
+    'cum','does','fuck','getting','being','more','just',
+    'only','also','into','that','then','than','when','will',
+    'have','has','had','its','our','out','can','back','even',
+    'most','over','such','well','up','my','me','him','she',
+    'they','we','us','it','go','got','let','put','end','old',
+    'own','too','very','want','way','who','why','yes','yet',
+    'use','two','how','any','may','say','each','once','please'
   ])
-  const words = title
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, ' ')
-    .split(/\s+/)
-    .filter(w => w.length > 2 && !stopWords.has(w))
-  const unique = [...new Set(words)]
+
+  const tags: string[] = []
+  const segments = title.split(/\s*[-–—]\s*/)
+
+  segments.forEach((segment, index) => {
+    const trimmed = segment.trim()
+    if (!trimmed) return
+    if (/tube|xxx|porn|videos|\.com|\.xxx/i.test(trimmed)) return
+
+    const words = trimmed.split(/\s+/)
+
+    if (index === 0 && words.length >= 1 && words.length <= 3) {
+      const name = trimmed.toLowerCase()
+      if (!stopWords.has(name)) {
+        tags.push(name)
+        return
+      }
+    }
+
+    words.forEach(word => {
+      const w = word.toLowerCase().replace(/[^a-z0-9]/g, '')
+      if (w.length > 2 && !stopWords.has(w) && !/^\d+$/.test(w)) {
+        tags.push(w)
+      }
+    })
+  })
+
+  const unique = [...new Set(tags)].filter(t => t.length > 1)
   return unique.slice(0, level)
 }
