@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { db, type Bookmark, type QueueItem, type Playlist, getSettings, extractTags } from './lib/db'
+import { Lock } from './Lock'
 
 declare const chrome: any
 
@@ -14,7 +15,19 @@ function shuffle<T>(arr: T[]): T[] {
   return a
 }
 
+function hashPin(pin: string): string {
+  let hash = 0
+  for (let i = 0; i < pin.length; i++) {
+    hash = ((hash << 5) - hash) + pin.charCodeAt(i)
+    hash |= 0
+  }
+  return hash.toString()
+}
+
 function App() {
+  const [unlocked, setUnlocked] = useState(false)
+  const [pinHash, setPinHash] = useState<string | null>(null)
+  const [pinLoaded, setPinLoaded] = useState(false)
   const [url, setUrl] = useState('')
   const [title, setTitle] = useState('')
   const [duration, setDuration] = useState('')
@@ -38,7 +51,13 @@ function App() {
   const [shuffledIds, setShuffledIds] = useState<number[]>([])
 
   useEffect(() => {
-    getSettings().then(s => setAutoTagLevel(s.autoTagLevel))
+    getSettings().then(s => {
+      setAutoTagLevel(s.autoTagLevel)
+      setPinHash(s.pinHash)
+      setPinLoaded(true)
+      // Always show lock screen on open - user must set or enter PIN
+      setUnlocked(false)
+    })
     loadSaved()
     loadQueue()
     loadPlaylists()
@@ -94,6 +113,21 @@ function App() {
   const loadPlaylists = async () => {
     const items = await db.playlists.orderBy('createdAt').toArray()
     setPlaylists(items)
+  }
+
+  const handleSetPin = async (pin: string) => {
+    const h = hashPin(pin)
+    await db.settings.update(1, { pinHash: h })
+    setPinHash(h)
+    setUnlocked(true)
+  }
+
+  const handleUnlock = (pin: string): boolean => {
+    if (hashPin(pin) === pinHash) {
+      setUnlocked(true)
+      return true
+    }
+    return false
   }
 
   const handleSave = async () => {
@@ -399,6 +433,28 @@ function App() {
     </div>
   )
 
+  if (!pinLoaded) return null
+
+  if (!unlocked) {
+    return (
+      <div style={{ position: 'relative' }}>
+        <Lock
+          hasPin={!!pinHash}
+          onSetPin={handleSetPin}
+          onUnlock={handleUnlock}
+        />
+        {!pinHash && (
+          <div
+            onClick={() => setUnlocked(true)}
+            style={{ position: 'absolute', bottom: 16, right: 16, fontSize: 11, color: '#333', cursor: 'pointer' }}
+          >
+            Skip for now
+          </div>
+        )}
+      </div>
+    )
+  }
+
   return (
     <div style={{ width: 580, fontFamily: 'Arial', background: '#0f1923', color: '#fff', minHeight: 400, display: 'flex', flexDirection: 'column' }}>
 
@@ -451,6 +507,13 @@ function App() {
             title="Re-tag all"
           >
             ✦
+          </button>
+          <button
+            onClick={() => setUnlocked(false)}
+            style={{ padding: '4px 8px', background: '#1a2533', color: '#aaa', border: '1px solid #333', borderRadius: 4, cursor: 'pointer', fontSize: 10 }}
+            title="Lock"
+          >
+            🔒
           </button>
         </div>
         {saveMsg && <div style={{ color: '#4caf50', fontSize: 11, marginTop: 4 }}>{saveMsg}</div>}
@@ -508,8 +571,6 @@ function App() {
 
       {/* Main layout */}
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-
-        {/* Left: items */}
         <div style={{ flex: 1, overflowY: 'auto', padding: '6px 8px', display: 'flex', flexDirection: 'column', gap: 5 }}>
           {view === 'playlist' && activePlaylist && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0 6px', borderBottom: '1px solid #1a2533' }}>
@@ -531,9 +592,7 @@ function App() {
           {filtered.map(item => renderItem(item))}
         </div>
 
-        {/* Right: playlists + tags */}
         <div style={{ width: 100, borderLeft: '1px solid #1a2533', padding: '8px 6px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
-
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
               <div style={{ fontSize: 9, color: '#444', fontWeight: 'bold', letterSpacing: 1 }}>PLAYLISTS</div>
@@ -586,7 +645,6 @@ function App() {
               ))}
             </div>
           </div>
-
         </div>
       </div>
     </div>
