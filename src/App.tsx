@@ -51,6 +51,8 @@ function App() {
   const [addingToPlaylist, setAddingToPlaylist] = useState<Bookmark | null>(null)
   const [isShuffled, setIsShuffled] = useState(false)
   const [shuffledIds, setShuffledIds] = useState<number[]>([])
+  const [checking, setChecking] = useState(false)
+  const [filterDead, setFilterDead] = useState(false)
 
   useEffect(() => {
     getSettings().then(s => {
@@ -101,7 +103,22 @@ function App() {
       }
     }
     window.addEventListener('keydown', handleKey)
-    return () => window.removeEventListener('keydown', handleKey)
+
+    // Listen for health check completion
+    const handleMessage = (msg: any) => {
+      if (msg.type === 'CHECK_COMPLETE') {
+        setChecking(false)
+        loadSaved()
+        setSaveMsg('✅ Health check complete!')
+        setTimeout(() => setSaveMsg(''), 3000)
+      }
+    }
+    chrome.runtime.onMessage.addListener(handleMessage)
+
+    return () => {
+      window.removeEventListener('keydown', handleKey)
+      chrome.runtime.onMessage.removeListener(handleMessage)
+    }
   }, [])
 
   const loadSaved = async () => {
@@ -182,6 +199,12 @@ function App() {
     await loadSaved()
     setSaveMsg('✅ Re-tagged!')
     setTimeout(() => setSaveMsg(''), 2000)
+  }
+
+  const handleCheckLinks = () => {
+    setChecking(true)
+    setSaveMsg('🔍 Checking links...')
+    chrome.runtime.sendMessage({ type: 'CHECK_LINKS' })
   }
 
   const handleDelete = async (id: number) => {
@@ -323,6 +346,8 @@ function App() {
     }
   }
 
+  const deadCount = saved.filter(s => s.lastChecked && !s.isAlive).length
+
   const allTags = [...new Set(saved.flatMap(s => s.tags || []))]
 
   const playlistItems = activePlaylist
@@ -337,11 +362,12 @@ function App() {
   const filtered = orderedItems.filter(item => {
     const matchSearch = search === '' || item.title.toLowerCase().includes(search.toLowerCase())
     const matchTag = filterTag === '' || (item.tags || []).includes(filterTag)
-    return matchSearch && matchTag
+    const matchDead = !filterDead || (item.lastChecked && !item.isAlive)
+    return matchSearch && matchTag && matchDead
   })
 
   const renderItem = (item: Bookmark) => (
-    <div key={item.id} style={{ background: '#1a2533', borderRadius: 5, overflow: 'hidden' }}>
+    <div key={item.id} style={{ background: '#1a2533', borderRadius: 5, overflow: 'hidden', border: item.lastChecked && !item.isAlive ? '1px solid #c0392b' : '1px solid transparent' }}>
       <div style={{ display: 'flex', gap: 7, padding: 7 }}>
         {item.thumbnail ? (
           <img
@@ -365,8 +391,13 @@ function App() {
           >
             {item.title}
           </div>
-          <div style={{ fontSize: 10, color: '#555', marginBottom: 3 }}>
-            🌐 {item.domain} {item.duration && `· ⏱ ${item.duration}`}
+          <div style={{ fontSize: 10, color: '#555', marginBottom: 3, display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span>🌐 {item.domain} {item.duration && `· ⏱ ${item.duration}`}</span>
+            {item.lastChecked && (
+              <span style={{ color: item.isAlive ? '#27ae60' : '#c0392b', fontSize: 10 }}>
+                {item.isAlive ? '● Live' : '● Dead'}
+              </span>
+            )}
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 2, marginBottom: 3 }}>
             {(item.tags || []).map(tag => (
@@ -512,6 +543,23 @@ function App() {
           >
             🎬 {queue.length > 0 ? `(${queue.length})` : 'Q'}
           </button>
+          <button
+            onClick={handleCheckLinks}
+            disabled={checking}
+            style={{ padding: '4px 8px', background: checking ? '#5b9bd5' : deadCount > 0 ? '#c0392b' : '#1a2533', color: '#fff', border: '1px solid #333', borderRadius: 4, cursor: checking ? 'default' : 'pointer', fontSize: 10, whiteSpace: 'nowrap' }}
+            title="Check for dead links"
+          >
+            {checking ? '🔍...' : deadCount > 0 ? `💀 ${deadCount}` : '🔍'}
+          </button>
+          {deadCount > 0 && (
+            <button
+              onClick={() => setFilterDead(!filterDead)}
+              style={{ padding: '4px 8px', background: filterDead ? '#c0392b' : '#1a2533', color: '#fff', border: '1px solid #c0392b', borderRadius: 4, cursor: 'pointer', fontSize: 10 }}
+              title="Show dead links only"
+            >
+              Dead
+            </button>
+          )}
           <button
             onClick={handleRetagAll}
             style={{ padding: '4px 8px', background: '#1a2533', color: '#aaa', border: '1px solid #333', borderRadius: 4, cursor: 'pointer', fontSize: 10 }}
