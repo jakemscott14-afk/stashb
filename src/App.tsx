@@ -365,7 +365,10 @@ function App() {
     const matchDead = !filterDead || (item.lastChecked && !item.isAlive)
     return matchSearch && matchTag && matchDead
   })
-
+const findReplacement = (item: Bookmark) => {
+    const query = encodeURIComponent(item.title.replace(/[-–—]/g, ' ').trim())
+    chrome.tabs.create({ url: `https://www.google.com/search?q=${query}` })
+  }
   const renderItem = (item: Bookmark) => (
     <div key={item.id} style={{ background: '#1a2533', borderRadius: 5, overflow: 'hidden', border: item.lastChecked && !item.isAlive ? '1px solid #c0392b' : '1px solid transparent' }}>
       <div style={{ display: 'flex', gap: 7, padding: 7 }}>
@@ -396,6 +399,14 @@ function App() {
             {item.lastChecked && (
               <span style={{ color: item.isAlive ? '#27ae60' : '#c0392b', fontSize: 10 }}>
                 {item.isAlive ? '● Live' : '● Dead'}
+              </span>
+            )}
+            {item.lastChecked && !item.isAlive && (
+              <span
+                onClick={() => findReplacement(item)}
+                style={{ fontSize: 10, color: '#e67e22', cursor: 'pointer', padding: '1px 5px', border: '1px solid #e67e22', borderRadius: 4 }}
+              >
+                🔎 Find
               </span>
             )}
           </div>
